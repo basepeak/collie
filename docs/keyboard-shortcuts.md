@@ -108,6 +108,10 @@ is written `prefix+<key>`. A key inside a mode is a bare key.
 | `rename_space` | - | Navigation | Renames the space you are in, on its page or, on a large screen, in the session view, where its multiplexer takes a rename. | [Space](terminology.md#space) |
 | `previous_space` | `prefix+k` | Navigation | Goes to the space before this one. | [Space](terminology.md#space) |
 | `next_space` | `prefix+j` | Navigation | Goes to the space after this one. | [Space](terminology.md#space) |
+| `tree_parent` | `prefix+shift+left` | Navigation | In a pane that sits in a tree: moves up to the pane that started it. | [Tree order](sessions.md#move-through-the-tree-from-a-session) |
+| `tree_first_child` | `prefix+shift+right` | Navigation | In a pane that sits in a tree: moves down to the first pane it started. | [Tree order](sessions.md#move-through-the-tree-from-a-session) |
+| `tree_previous` | `prefix+shift+up` | Navigation | In a pane that sits in a tree: moves to the previous pane with the same parent. | [Tree order](sessions.md#move-through-the-tree-from-a-session) |
+| `tree_next` | `prefix+shift+down` | Navigation | In a pane that sits in a tree: moves to the next pane with the same parent. | [Tree order](sessions.md#move-through-the-tree-from-a-session) |
 | `navigate_mode` | `prefix+w` | Navigation | Opens Navigate mode. | [Navigate mode](terminology.md#navigate-mode) |
 | `navigate_down` | `j`, `down` | Navigation | In Navigate mode: moves the focus ring down one row. | [Navigate mode](terminology.md#navigate-mode) |
 | `navigate_up` | `k`, `up` | Navigation | In Navigate mode: moves the focus ring up one row. | [Navigate mode](terminology.md#navigate-mode) |
