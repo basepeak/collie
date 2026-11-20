@@ -210,14 +210,17 @@ export function WorkspaceFilter({
   );
 }
 
-/** The pane order as a select: Place, Activity, Cache, its glyph in front of the chosen word. */
+/** The pane order as a select: Place, Activity, Cache (and Tree when offered), its glyph in front of the chosen word. */
 export function PaneOrderSelect({
   order,
   onChange,
+  orders = PANE_ORDERS,
   className,
 }: {
   order: PaneOrder;
   onChange: (order: PaneOrder) => void;
+  /** The orders offered (`paneOrdersFor`). Omit and every order is offered. */
+  orders?: readonly PaneOrder[];
   className?: string;
 }) {
   useLocale();
@@ -229,11 +232,11 @@ export function PaneOrderSelect({
       value={order}
       lead={<Icon name={icon} className="size-4" />}
       onChange={(event) => {
-        const next = PANE_ORDERS.find((o) => o === event.target.value);
+        const next = orders.find((o) => o === event.target.value);
         if (next !== undefined) onChange(next);
       }}
     >
-      {PANE_ORDERS.map((value) => (
+      {orders.map((value) => (
         <option key={value} value={value}>
           {t(PANE_ORDER_SEGMENTS[value].label)}
         </option>

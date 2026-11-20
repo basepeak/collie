@@ -276,6 +276,7 @@ export const PHOSPHOR = {
   "sign-in": "sign-in", // sign in · lucide LogIn
   "slash-command": "terminal", // slash command · lucide Slash
   "sort-by-place": "tree-structure", // sort panes by place · lucide FolderTree
+  "sort-by-tree": "tree-view", // sort panes by who started whom · lucide Network
   "sort-order": "arrows-down-up", // the pane sort order setting · lucide ArrowDownUp
   "space-next": "caret-down", // next space · lucide ChevronDown
   "space-prev": "caret-up", // previous space · lucide ChevronUp
@@ -313,6 +314,7 @@ export const PHOSPHOR = {
   "tool-search": "magnifying-glass", // a search tool call · lucide Search
   "tool-task": "robot", // a task or subagent tool call · lucide Bot
   "tour": "compass", // the guided tour · lucide Compass
+  "tree-child": "arrow-elbow-down-right", // a pane started by the pane above it · lucide CornerDownRight
   "tricks": "puzzle-piece", // Collie tricks, the small add-ons a person switches on · lucide Puzzle
   "type-into-terminal": "terminal", // type into the terminal · lucide Terminal
   "typeface": "text-aa", // the typeface setting · lucide CaseSensitive

@@ -6,7 +6,7 @@ import { PANE_ORDERS, type PaneOrder } from "@/lib/pane-order";
 import { t, type MessageKey } from "@/lib/i18n";
 import { useLocale } from "@/hooks/use-locale";
 
-// Place, Activity or Cache: the segmented choice that decides which way a pane list runs
+// Place, Activity, Cache or Tree: the segmented choice that decides which way a pane list runs
 // (lib/pane-order.ts, ADR 0071). ONE control, drawn in two places — at the top of the pane switcher
 // where the order is read, and on the Settings page where a person goes looking for it — because the
 // two write the same stored value and a person who finds one should recognise the other.
@@ -30,17 +30,21 @@ export const PANE_ORDER_SEGMENTS = {
   // The chip's own glyph (components/cache-chip.tsx), so the control and the number it sorts by are
   // obviously about the same thing.
   cache: { label: "paneOrder.cache", icon: "cache-age" },
+  tree: { label: "paneOrder.tree", icon: "sort-by-tree" },
 } as const satisfies Record<PaneOrder, { label: MessageKey; icon: IconKey }>;
 
 export function PaneOrderToggle({
   order,
   onChange,
+  orders = PANE_ORDERS,
   compact = false,
   iconClassName = "size-4",
   className,
 }: {
   order: PaneOrder;
   onChange: (order: PaneOrder) => void;
+  /** The orders offered, in this order (`paneOrdersFor`). Omit and every order is offered. */
+  orders?: readonly PaneOrder[];
   /** Glyphs only, sized to share a row. See the note above {@link PANE_ORDER_SEGMENTS}. */
   compact?: boolean;
   /** The glyph's size; the large screen's sidebar draws its 20px glyphs here too. */
@@ -54,7 +58,7 @@ export function PaneOrderToggle({
       aria-label={t("paneOrder.aria")}
       className={cn("flex gap-1", compact && "shrink-0", className)}
     >
-      {PANE_ORDERS.map((value) => {
+      {orders.map((value) => {
         const { label, icon } = PANE_ORDER_SEGMENTS[value];
         const selected = value === order;
         return (
