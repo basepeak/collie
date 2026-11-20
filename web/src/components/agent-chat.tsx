@@ -154,6 +154,10 @@ import { pickTabPane } from "@/lib/tab-pane-memory";
 import { zoomPillShown } from "@/lib/zoom-pill";
 import { CrossfadeText } from "@/components/ui/crossfade-text";
 import { paneRowKey, paneScope, paneSpaceKey } from "@/lib/hosts";
+import { groupPanesByWorkspace } from "@/lib/pane-groups";
+import { foldedAncestors, herdHasTree, treeLayout, treeRelatives, type TreeRelatives } from "@/lib/pane-tree";
+import { currentFolds, unfoldBranches } from "@/lib/tree-fold";
+import { hasRelatives, TreeNavSheet, useTreeNavKeys } from "@/components/tree-nav";
 import { isLead, paneScopeKey } from "@/lib/scope";
 import { useAccounts } from "@/lib/accounts";
 import { openReport, signalTrouble, unreadDialogReport } from "@/lib/report/store";
@@ -282,7 +286,10 @@ function foldLabelKey(tabCount: number, paneCount: number): MessageKey {
 
 // At most one drawer/sheet is open at a time; null = none. (The composer's own Keys/Quick/Agent
 // sheets are separate and live inside <Composer>.)
-type Drawer = "switcher" | "paneMenu" | "paneSettings" | "messages" | "display" | null;
+type Drawer = "switcher" | "paneMenu" | "paneSettings" | "messages" | "display" | "tree" | null;
+
+/** No relatives: what the tree keys read on a pane that sits in no tree. */
+const NO_RELATIVES: TreeRelatives = { parent: null, children: [], previous: null, next: null };
 
 // The detail view mirrors a terminal pane, NOT a chat thread. The pane's output comes from the
 // route loader (`text`); polling revalidates it. Replies/keys are confirmed via the header status
@@ -459,6 +466,16 @@ export function AgentChat({
   // Every pane of the herd, for the pane menu's Pin to top row on both doors (lib/pins.ts reads it to
   // tell a live pin from a dormant one), and this device's pins, for the switcher's Pinned section.
   const herd = useMemo(() => [...agents, ...shellPanes], [agents, shellPanes]);
+  // THE PANE'S PLACE IN THE TREE (lib/pane-tree.ts): laid out over the herd in the dashboard's place order, the
+  // same layout the tree order draws, so a move here lands on the row the list shows next to this one. Null
+  // while no pane of the herd sits in a tree, which keeps the header's tree button and the keys away.
+  const treeHere = useMemo(() => {
+    if (agent === undefined || !herdHasTree(herd)) return null;
+    const place = groupPanesByWorkspace(agents, shellPanes, { order: "fixed", tabs, servers }).flatMap((g) => g.panes);
+    const layout = treeLayout(place);
+    const relatives = treeRelatives(layout, agent);
+    return hasRelatives(relatives) ? { layout, relatives } : null;
+  }, [agent, agents, shellPanes, herd, tabs, servers]);
   const pins = usePins();
   // This device may not type into agents: the backend rejects every write, so the composer drops to
   // read-only (and shows a banner). The mirror still polls (reading is fine). Either write gate puts
@@ -507,6 +524,8 @@ export function AgentChat({
   // Drawers/sheets are mutually exclusive — at most one open. A single value makes that invariant
   // unrepresentable to violate.
   const [drawer, setDrawer] = useState<Drawer>(null);
+  // Alt with an arrow moves through the tree on a keyboard, while no sheet is open (components/tree-nav.tsx).
+  useTreeNavKeys(treeHere?.relatives ?? NO_RELATIVES, (pane) => moveInTree(pane), treeHere !== null && drawer === null);
   // The prompt-cache sheet is NOT one of the mutually-exclusive drawers above: it is a reading with no
   // control in it, opened from the header rather than from the composer, and it closes nothing the
   // operator was in the middle of. Its own boolean says so.
@@ -2279,6 +2298,13 @@ export function AgentChat({
     nav.side(panePath(pane.paneId, paneScope(scope ?? {}, pane, servers)));
   }
 
+  // A move through the tree: open the folded branches that hide the pane, so the tree order shows where you
+  // went, then go there sideways like any other switch.
+  function moveInTree(pane: AgentView) {
+    if (treeHere !== null) unfoldBranches(foldedAncestors(treeHere.layout, pane, currentFolds()));
+    switchToPane(pane);
+  }
+
   // Jump to another tab in this space by opening one of its panes (the in-pane tab bar).
   function goToTab(tabId: string) {
     if (!agent || tabId === agent.tabId) return;
@@ -2509,6 +2535,17 @@ export function AgentChat({
           // region and this is the right cluster; the two never share an edge and never had to.
           rightLead={
             <div className="flex items-stretch gap-2 pr-3">
+              {/* The second Action of the budget above: the tree, only on a pane that has a relative to move to. */}
+              {agent && treeHere !== null && (
+                <button
+                  type="button"
+                  onClick={() => setDrawer("tree")}
+                  aria-label={t("treeNav.open")}
+                  className="grid w-11 min-h-11 shrink-0 place-items-center self-stretch rounded-md text-muted-foreground transition-colors active:bg-muted/60 active:text-foreground"
+                >
+                  <Icon name="sort-by-tree" className="size-5" />
+                </button>
+              )}
               {agent ? (
                 <button
                   type="button"
@@ -3986,6 +4023,9 @@ export function AgentChat({
           cache={agent?.cache}
           host={agent?.host}
         />
+        {treeHere !== null && (
+          <TreeNavSheet open={drawer === "tree"} onClose={closeDrawer} relatives={treeHere.relatives} onMove={moveInTree} />
+        )}
         <PaneActionsSheet
           open={drawer === "paneMenu"}
           onClose={closeDrawer}

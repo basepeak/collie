@@ -13,7 +13,9 @@ import { StatusCounts, StatusSummaryLine } from "@/components/status-counts";
 import { pinnedRows, shownGroups } from "@/lib/dash-view";
 import { paneRowKey, paneSpaceKey, tabKey } from "@/lib/hosts";
 import { groupPanesByWorkspace } from "@/lib/pane-groups";
-import { inRankOrder, type PaneOrder } from "@/lib/pane-order";
+import { inRankOrder, paneOrdersFor, rankedHeading, type PaneOrder } from "@/lib/pane-order";
+import { foldTree, herdHasTree, NO_FOLDS, paneRole, paneTree, treeLayout, treeRows, unfoldPath, waitsOnYou, type FoldedRow, type TreePlace } from "@/lib/pane-tree";
+import { foldBranch, unfoldBranches, useTreeFolds } from "@/lib/tree-fold";
 import {
   byScore,
   filterOffered,
@@ -32,6 +34,7 @@ import { paneName, panePlaceParts } from "@/lib/pane-name";
 import { paneSubtitle } from "@/lib/pane-marks";
 import { PaneBadge } from "@/components/pane-badge";
 import { PaneGlyph } from "@/components/ui/pane-glyph";
+import { FoldSummary, TreeRow } from "@/components/ui/tree-row";
 import { UnseenMark } from "@/components/ui/unseen-mark";
 import { shortenHome } from "@/lib/shorten-home";
 import { bucketOf, isAttention, isUnseen, shownStatus, worstTriage, type TriageKey } from "@/lib/triage";
@@ -246,6 +249,8 @@ export function ThreadSidebar({
   // THE ORDER, AND WHY IT IS READ ONCE: see `useFrozenRanks` and the long note below. Called here, above
   // the early return, because a hook cannot sit behind one.
   const { ranks, reread } = useFrozenRanks(order, [...agents, ...shellPanes]);
+  // The branches this device folded in the tree order (lib/tree-fold.ts), shared with the dashboard.
+  const folds = useTreeFolds();
   const showLaunch = launchers.length > 0 && onLaunch !== undefined;
   const noPanes = agents.length === 0 && shellPanes.length === 0;
   const showTricks = trickSessions.length > 0 && onSelectTrick !== undefined;
@@ -326,8 +331,26 @@ export function ThreadSidebar({
   // Place keeps its workspace sections; BOTH ranked orders collapse to one list, for the same reason:
   // a rank crosses every workspace, and a heading cannot answer a question asked across all of them.
   const ranked = order !== "place";
+  // The tree order is structure, laid out live (lib/pane-tree.ts), never a frozen reading.
+  // A pinned pane stays in its place in the tree as well (`treeRows`), so the panes under it keep their parent row.
+  const tree =
+    order === "tree"
+      ? treeLayout(
+          treeRows(
+            [...sections.flatMap((g) => g.rows), ...shellRows],
+            pinned,
+            groupPanesByWorkspace(agents, shellPanes, groupOptions).flatMap((g) => g.panes),
+          ),
+        )
+      : null;
+  // A pinned pane's second row, in the tree: no DOM id, so the summary line's jump lands on the Pinned row.
+  const isTreeCopy = (a: AgentView) => tree !== null && isPinned(a);
+  // Folded branches, as on the dashboard; a query searches every row, so the folds wait while it holds one.
+  const querying = query.trim() !== "";
+  const folded = tree === null ? null : foldTree(tree, querying ? NO_FOLDS : folds, waitsOnYou);
+  const foldAt = new Map<string, FoldedRow>(folded?.map((r) => [paneRowKey(r.pane), r]) ?? []);
   const rankedAll = ranked
-    ? inRankOrder([...sections.flatMap((g) => g.rows), ...shellRows], ranks)
+    ? (folded?.map((r) => r.pane) ?? inRankOrder([...sections.flatMap((g) => g.rows), ...shellRows], ranks))
     : NO_PANES;
 
   const urgent = agents.filter((a) => URGENT.has(bucketOf(a)));
@@ -336,8 +359,8 @@ export function ThreadSidebar({
   // pinned pane needs you, and in whichever order the rows below it are running in.
   const firstUrgent = [
     ...pinnedAll,
-    ...(ranked ? rankedAll : sections.flatMap((g) => g.rows)),
-  ].find(isUrgent);
+    ...(ranked ? rankedAll.filter((a) => !isTreeCopy(a)) : sections.flatMap((g) => g.rows)),
+  ].find((a) => isUrgent(a) || (foldAt.get(paneRowKey(a))?.waiting ?? 0) > 0);
 
   // ── WHAT A QUERY LEAVES ─────────────────────────────────────────────────────
   // With no query (`hits` null) every list below is the very array it was before the filter, so the
@@ -397,21 +420,54 @@ export function ThreadSidebar({
       match={hitOf(pane)}
     />
   );
+  // A row's place in the tree, only in the tree order's own list: never in Pinned or a best-first list,
+  // where the rows above a child are not its starter.
+  const treePlace = (a: AgentView) => {
+    const at = bestRows !== null ? undefined : foldAt.get(paneRowKey(a));
+    if (at === undefined) return undefined;
+    return at.folded ? { role: paneRole(a), fold: { hidden: at.hidden, waiting: at.waiting } } : { role: paneRole(a) };
+  };
   // A trick row reaches here only in best-first order, where every matched row shares one flat list.
-  const row = (a: AgentView) =>
-    isTrickPane(a) ? (
-      trickRow(a)
-    ) : (
-      <PaneRow
+  // `inTree`: the row is drawn in the tree order's own list. Only there does it take its depth and role, and
+  // a pinned pane's row there is its second one, so it carries no DOM id (`isTreeCopy`).
+  const paneRow = (a: AgentView, inTree: boolean) => (
+    <PaneRow
+      key={paneRowKey(a)}
+      id={inTree && isTreeCopy(a) ? undefined : rowDomId(a)}
+      pane={a}
+      active={paneRowKey(a) === currentPaneKey}
+      onSelect={onSelect}
+      roomy={roomy}
+      match={hitOf(a)}
+      tree={inTree ? treePlace(a) : undefined}
+    />
+  );
+  const toggleBranch = (id: string) => {
+    if (tree === null) return;
+    if (folds.has(id)) unfoldBranches(unfoldPath(tree, id, waitsOnYou));
+    else foldBranch(id);
+  };
+  // A row of the ranked list: in `TreeRow` (indent and fold toggle) when it sits in a tree, the bare row otherwise.
+  const rankedRow = (a: AgentView) => {
+    if (isTrickPane(a)) return trickRow(a);
+    const inner = paneRow(a, tree !== null);
+    const at = tree === null || bestRows !== null ? undefined : foldAt.get(paneRowKey(a));
+    if (at === undefined || (at.branch === null && paneTree(a) === null)) return inner;
+    const branch = at.branch;
+    return (
+      <TreeRow
         key={paneRowKey(a)}
-        id={rowDomId(a)}
-        pane={a}
-        active={paneRowKey(a) === currentPaneKey}
-        onSelect={onSelect}
-        roomy={roomy}
-        match={hitOf(a)}
-      />
+        depth={at.depth}
+        branch={branch !== null && !querying}
+        folded={at.folded}
+        name={paneName(a)}
+        onToggle={() => branch !== null && toggleBranch(branch)}
+      >
+        {inner}
+      </TreeRow>
     );
+  };
+  const row = (a: AgentView) => (isTrickPane(a) ? trickRow(a) : paneRow(a, false));
 
   return (
     <div className={cn("flex flex-col px-2 py-3", roomy ? "gap-6" : "gap-4", className)}>
@@ -455,6 +511,7 @@ export function ThreadSidebar({
           {onOrderChange && !noPanes && (
             <PaneOrderToggle
               order={order}
+              orders={paneOrdersFor(herdHasTree(agents) || herdHasTree(shellPanes), order)}
               onChange={(next) => {
                 reread();
                 onOrderChange(next);
@@ -496,11 +553,11 @@ export function ThreadSidebar({
               <Section
                 roomy={roomy}
                 id="switch-activity"
-                label={t(order === "cache" ? "paneOrder.coldest" : "paneOrder.recent")}
+                label={t(rankedHeading(order))}
                 count={rankedRows.length}
                 tone={roomy ? "quiet" : "strong"}
               >
-                {rankedRows.map(row)}
+                {rankedRows.map(rankedRow)}
               </Section>
             )
           ) : (
@@ -654,6 +711,7 @@ function PaneRow({
   onSelect,
   roomy,
   match,
+  tree,
 }: {
   /** The row's DOM id, for the summary line's jump. Every row has one, shells too. */
   id?: string;
@@ -664,6 +722,8 @@ function PaneRow({
   roomy: boolean;
   /** How the filter's query matched this row (lib/pane-filter.ts). Absent with no query: the row is drawn as before. */
   match?: PaneMatch | undefined;
+  /** The row in the tree order (lib/pane-tree.ts): its role and what a fold hides. Absent outside it: drawn as before. */
+  tree?: TreePlace | undefined;
 }) {
   const isShell = pane.kind === "shell";
   // ONE NAME, ONE PLACE (lib/pane-name.ts), the same way round as every other row in the app: the
@@ -729,6 +789,10 @@ function PaneRow({
             <MatchText text={name} ranges={marks?.name} fade={paneRowKey(pane)} />
           </span>
           <PaneBadge pane={pane} className={cn("shrink-0 self-center", roomy && "text-muted-foreground")} />
+          {tree !== undefined && tree.role !== null && (
+            <PaneBadge pane={{ badge: { text: tree.role } }} className={cn("shrink-0 self-center", roomy && "text-muted-foreground")} />
+          )}
+          {tree?.fold !== undefined && <FoldSummary hidden={tree.fold.hidden} waiting={tree.fold.waiting} className="self-center" />}
           {/* A finished pane nobody opened: the dashboard's square, after the name, so a row agrees with
               the heading's `■` count. The slot is kept on every agent row, so a name truncates at one
               width whether the mark is drawn or not (DESIGN.md §2). */}
