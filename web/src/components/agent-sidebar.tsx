@@ -14,7 +14,7 @@ import { pinnedRows, shownGroups } from "@/lib/dash-view";
 import { paneRowKey, paneSpaceKey, tabKey } from "@/lib/hosts";
 import { groupPanesByWorkspace } from "@/lib/pane-groups";
 import { inRankOrder, paneOrdersFor, rankedHeading, type PaneOrder } from "@/lib/pane-order";
-import { herdHasTree, paneRole, treeLayout } from "@/lib/pane-tree";
+import { herdHasTree, paneRole, treeLayout, treeRows } from "@/lib/pane-tree";
 import {
   byScore,
   filterOffered,
@@ -329,7 +329,19 @@ export function ThreadSidebar({
   // a rank crosses every workspace, and a heading cannot answer a question asked across all of them.
   const ranked = order !== "place";
   // The tree order is structure, laid out live (lib/pane-tree.ts), never a frozen reading.
-  const tree = order === "tree" ? treeLayout([...sections.flatMap((g) => g.rows), ...shellRows]) : null;
+  // A pinned pane stays in its place in the tree as well (`treeRows`), so the panes under it keep their parent row.
+  const tree =
+    order === "tree"
+      ? treeLayout(
+          treeRows(
+            [...sections.flatMap((g) => g.rows), ...shellRows],
+            pinned,
+            groupPanesByWorkspace(agents, shellPanes, groupOptions).flatMap((g) => g.panes),
+          ),
+        )
+      : null;
+  // A pinned pane's second row, in the tree: no DOM id, so the summary line's jump lands on the Pinned row.
+  const isTreeCopy = (a: AgentView) => tree !== null && isPinned(a);
   const rankedAll = ranked
     ? (tree?.rows ?? inRankOrder([...sections.flatMap((g) => g.rows), ...shellRows], ranks))
     : NO_PANES;
@@ -340,7 +352,7 @@ export function ThreadSidebar({
   // pinned pane needs you, and in whichever order the rows below it are running in.
   const firstUrgent = [
     ...pinnedAll,
-    ...(ranked ? rankedAll : sections.flatMap((g) => g.rows)),
+    ...(ranked ? rankedAll.filter((a) => !isTreeCopy(a)) : sections.flatMap((g) => g.rows)),
   ].find(isUrgent);
 
   // ── WHAT A QUERY LEAVES ─────────────────────────────────────────────────────
@@ -408,21 +420,22 @@ export function ThreadSidebar({
     return depth === undefined ? undefined : { depth, role: paneRole(a) };
   };
   // A trick row reaches here only in best-first order, where every matched row shares one flat list.
-  const row = (a: AgentView) =>
-    isTrickPane(a) ? (
-      trickRow(a)
-    ) : (
-      <PaneRow
-        key={paneRowKey(a)}
-        id={rowDomId(a)}
-        pane={a}
-        active={paneRowKey(a) === currentPaneKey}
-        onSelect={onSelect}
-        roomy={roomy}
-        match={hitOf(a)}
-        tree={treePlace(a)}
-      />
-    );
+  // `inTree`: the row is drawn in the tree order's own list. Only there does it take its depth and role, and
+  // a pinned pane's row there is its second one, so it carries no DOM id (`isTreeCopy`).
+  const paneRow = (a: AgentView, inTree: boolean) => (
+    <PaneRow
+      key={paneRowKey(a)}
+      id={inTree && isTreeCopy(a) ? undefined : rowDomId(a)}
+      pane={a}
+      active={paneRowKey(a) === currentPaneKey}
+      onSelect={onSelect}
+      roomy={roomy}
+      match={hitOf(a)}
+      tree={inTree ? treePlace(a) : undefined}
+    />
+  );
+  const rankedRow = (a: AgentView) => (isTrickPane(a) ? trickRow(a) : paneRow(a, true));
+  const row = (a: AgentView) => (isTrickPane(a) ? trickRow(a) : paneRow(a, false));
 
   return (
     <div className={cn("flex flex-col px-2 py-3", roomy ? "gap-6" : "gap-4", className)}>
@@ -512,7 +525,7 @@ export function ThreadSidebar({
                 count={rankedRows.length}
                 tone={roomy ? "quiet" : "strong"}
               >
-                {rankedRows.map(row)}
+                {rankedRows.map(rankedRow)}
               </Section>
             )
           ) : (
